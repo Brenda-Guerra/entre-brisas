@@ -127,7 +127,7 @@ export default function CriarSala() {
     <main className="main-page">
       <header className="game-header">
         <h1 className="game-logo">
-          Entre Pistas
+          Entre Brisas
         </h1>
       </header>
 

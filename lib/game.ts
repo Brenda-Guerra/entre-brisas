@@ -17,13 +17,13 @@ export function salvarJogador(
   playerId: string
 ) {
   localStorage.setItem(
-    `entre-pistas-player-${codigoSala}`,
+    `entre-brisas-player-${codigoSala}`,
     playerId
   )
 }
 
 export function obterJogador(codigoSala: string) {
   return localStorage.getItem(
-    `entre-pistas-player-${codigoSala}`
+    `entre-brisas-player-${codigoSala}`
   )
 }

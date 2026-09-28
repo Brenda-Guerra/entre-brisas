@@ -5,7 +5,7 @@ export default function Home() {
     <main className="main-page">
       <header className="game-header">
         <h1 className="game-logo">
-          Entre Pistas
+          Entre Brisas
         </h1>
       </header>
 
@@ -13,11 +13,11 @@ export default function Home() {
         <h2 className="hero-title">
           CONECTE
           <br />
-          <span>AS PISTAS</span>
+          <span>AS BRISAS</span>
         </h2>
 
         <p className="hero-subtitle">
-          Combine palavras, dê pistas e descubra
+          Combine palavras, dê brisas e descubra
           as coordenadas junto com seus amigos.
         </p>
 

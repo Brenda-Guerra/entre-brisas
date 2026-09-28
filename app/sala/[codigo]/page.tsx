@@ -171,13 +171,13 @@ export default function Sala() {
       window.location.href
 
     const texto =
-      `Entre na minha sala do Entre Pistas!\n\n` +
+      `Entre na minha sala do Entre Brisas!\n\n` +
       `Código: ${codigo}\n` +
       `${url}`
 
     if (navigator.share) {
       await navigator.share({
-        title: 'Entre Pistas',
+        title: 'Entre Brisas',
         text: texto,
         url,
       })
@@ -208,7 +208,7 @@ export default function Sala() {
     }
 
     localStorage.removeItem(
-      `entre-pistas-player-${codigo}`
+      `entre-brisas-player-${codigo}`
     )
 
     router.push('/')
@@ -271,7 +271,7 @@ export default function Sala() {
     <main className="main-page">
       <header className="game-header">
         <h1 className="game-logo">
-          Entre Pistas
+          Entre Brisas
         </h1>
       </header>
 
