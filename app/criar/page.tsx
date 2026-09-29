@@ -2,19 +2,32 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { FormEvent, useState } from 'react'
+import { useState, type FormEvent } from 'react'
 
 import { supabase } from '@/lib/supabase'
 import {
   gerarCodigoSala,
   salvarJogador,
+  vidasTotais,
 } from '@/lib/game'
+import { Logo } from '@/components/ui'
+import { BotaoSom } from '@/components/Som'
+
+const TAMANHOS = [3, 4, 5, 6]
+
+const TEMPOS = [
+  { valor: '60', rotulo: '1 min' },
+  { valor: '120', rotulo: '2 min' },
+  { valor: '180', rotulo: '3 min' },
+  { valor: '300', rotulo: '5 min' },
+  { valor: 'unlimited', rotulo: '∞' },
+]
 
 export default function CriarSala() {
   const router = useRouter()
 
   const [nome, setNome] = useState('')
-  const [gridSize, setGridSize] = useState('4')
+  const [gridSize, setGridSize] = useState(4)
   const [turnTime, setTurnTime] = useState('120')
 
   const [loading, setLoading] = useState(false)
@@ -24,20 +37,17 @@ export default function CriarSala() {
     for (let tentativa = 0; tentativa < 10; tentativa++) {
       const codigo = gerarCodigoSala()
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('rooms')
         .select('id')
         .eq('code', codigo)
         .maybeSingle()
 
-      if (!data) {
-        return codigo
-      }
+      if (error) throw error
+      if (!data) return codigo
     }
 
-    throw new Error(
-      'Não foi possível gerar um código de sala.'
-    )
+    throw new Error('Não foi possível gerar um código de sala.')
   }
 
   async function criarSala(event: FormEvent) {
@@ -54,33 +64,20 @@ export default function CriarSala() {
 
       const codigo = await gerarCodigoUnico()
 
-      const tempo =
-        turnTime === 'unlimited'
-          ? null
-          : Number(turnTime)
+      const { data: sala, error: roomError } = await supabase
+        .from('rooms')
+        .insert({
+          code: codigo,
+          grid_size: gridSize,
+          turn_time: turnTime === 'unlimited' ? null : Number(turnTime),
+          status: 'waiting',
+        })
+        .select()
+        .single()
 
-      // 1. Criar a sala
-      const { data: sala, error: roomError } =
-        await supabase
-          .from('rooms')
-          .insert({
-            code: codigo,
-            grid_size: Number(gridSize),
-            turn_time: tempo,
-            status: 'waiting',
-          })
-          .select()
-          .single()
+      if (roomError) throw roomError
 
-      if (roomError) {
-        throw roomError
-      }
-
-      // 2. Criar anfitrião
-      const {
-        data: jogador,
-        error: playerError,
-      } = await supabase
+      const { data: jogador, error: playerError } = await supabase
         .from('players')
         .insert({
           room_id: sala.id,
@@ -92,148 +89,120 @@ export default function CriarSala() {
         .select()
         .single()
 
-      if (playerError) {
-        throw playerError
-      }
+      if (playerError) throw playerError
 
-      // 3. Definir host da sala
-      const { error: updateError } =
-        await supabase
-          .from('rooms')
-          .update({
-            host_id: jogador.id,
-          })
-          .eq('id', sala.id)
+      const { error: updateError } = await supabase
+        .from('rooms')
+        .update({ host_id: jogador.id })
+        .eq('id', sala.id)
 
-      if (updateError) {
-        throw updateError
-      }
+      if (updateError) throw updateError
 
       salvarJogador(codigo, jogador.id)
 
       router.push(`/sala/${codigo}`)
     } catch (error) {
       console.error(error)
-
-      setErro(
-        'Não foi possível criar a sala. Tente novamente.'
-      )
-    } finally {
+      setErro('Não foi possível criar a sala. Tente novamente.')
       setLoading(false)
     }
   }
 
   return (
-    <main className="main-page">
-      <header className="game-header">
-        <h1 className="game-logo">
-          Entre Brisas
-        </h1>
+    <main className="pagina">
+      <header className="topo">
+        <Link href="/" aria-label="Início">
+          <Logo />
+        </Link>
+        <BotaoSom />
       </header>
 
-      <section className="page-content">
-        <Link href="/" className="back-link">
+      <section className="conteudo">
+        <Link href="/" className="voltar">
           ← Voltar
         </Link>
 
-        <div className="card">
-          <h2 className="page-title">
-            Criar sala
-          </h2>
-
-          <p className="page-description">
-            Configure a partida e convide
-            seus amigos.
+        <div className="cartao cartao-form">
+          <h1 className="titulo-pagina">Criar sala</h1>
+          <p className="descricao-pagina">
+            Escolha o tamanho do tabuleiro e o tempo de cada fase.
           </p>
 
           <form onSubmit={criarSala}>
-            <div className="form-group">
-              <label className="label">
+            <div className="campo">
+              <label className="rotulo" htmlFor="nome">
                 Seu nome
               </label>
-
               <input
+                id="nome"
                 className="input"
                 value={nome}
-                onChange={(event) =>
-                  setNome(event.target.value)
-                }
+                onChange={(event) => setNome(event.target.value)}
                 maxLength={40}
-                placeholder="Ex.: Talita"
+                placeholder="Como te chamam?"
+                autoComplete="nickname"
               />
             </div>
 
-            <div className="form-group">
-              <label className="label">
-                Tamanho da grade
-              </label>
-
-              <select
-                className="select"
-                value={gridSize}
-                onChange={(event) =>
-                  setGridSize(event.target.value)
-                }
-              >
-                <option value="3">3 × 3</option>
-                <option value="4">4 × 4</option>
-                <option value="5">5 × 5</option>
-                <option value="6">6 × 6</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="label">
-                Tempo por jogador
-              </label>
-
-              <select
-                className="select"
-                value={turnTime}
-                onChange={(event) =>
-                  setTurnTime(event.target.value)
-                }
-              >
-                <option value="60">
-                  1 minuto
-                </option>
-
-                <option value="120">
-                  2 minutos
-                </option>
-
-                <option value="180">
-                  3 minutos
-                </option>
-
-                <option value="240">
-                  4 minutos
-                </option>
-
-                <option value="300">
-                  5 minutos
-                </option>
-
-                <option value="unlimited">
-                  Ilimitado
-                </option>
-              </select>
-            </div>
-
-            {erro && (
-              <div className="error">
-                {erro}
+            <div className="campo">
+              <span className="rotulo">Tabuleiro</span>
+              <div className="opcoes" role="radiogroup">
+                {TAMANHOS.map((tamanho) => (
+                  <button
+                    key={tamanho}
+                    type="button"
+                    role="radio"
+                    aria-checked={gridSize === tamanho}
+                    className={`opcao ${gridSize === tamanho ? 'ativa' : ''}`}
+                    onClick={() => setGridSize(tamanho)}
+                  >
+                    <span
+                      className="mini-grade"
+                      style={{ gridTemplateColumns: `repeat(${tamanho}, 1fr)` }}
+                      aria-hidden="true"
+                    >
+                      {Array.from({ length: tamanho * tamanho }).map((_, i) => (
+                        <i key={i} />
+                      ))}
+                    </span>
+                    {tamanho}×{tamanho}
+                  </button>
+                ))}
               </div>
-            )}
+              <p className="dica">
+                {gridSize * gridSize} cartas · {vidasTotais(gridSize)} vidas
+              </p>
+            </div>
+
+            <div className="campo">
+              <span className="rotulo">Tempo por fase</span>
+              <div className="opcoes opcoes-tempo" role="radiogroup">
+                {TEMPOS.map((tempo) => (
+                  <button
+                    key={tempo.valor}
+                    type="button"
+                    role="radio"
+                    aria-checked={turnTime === tempo.valor}
+                    className={`opcao ${turnTime === tempo.valor ? 'ativa' : ''}`}
+                    onClick={() => setTurnTime(tempo.valor)}
+                  >
+                    {tempo.rotulo}
+                  </button>
+                ))}
+              </div>
+              <p className="dica">
+                Vale para a pista e para os palpites. Acabou? Perde uma vida.
+              </p>
+            </div>
+
+            {erro && <div className="erro">{erro}</div>}
 
             <button
-              className="btn btn-primary"
+              className="btn btn-primario btn-grande"
               disabled={loading}
               type="submit"
             >
-              {loading
-                ? 'Criando...'
-                : 'Criar sala'}
+              {loading ? 'Criando…' : 'Criar sala'}
             </button>
           </form>
         </div>

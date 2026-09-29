@@ -5,397 +5,418 @@ import {
   useEffect,
   useState,
 } from 'react'
-
-import {
-  useParams,
-  useRouter,
-} from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 
 import { supabase } from '@/lib/supabase'
-import { obterJogador } from '@/lib/game'
-
-type Room = {
-  id: string
-  code: string
-  host_id: string | null
-  grid_size: number
-  turn_time: number | null
-  status: string
-}
-
-type Player = {
-  id: string
-  room_id: string
-  name: string
-  player_order: number | null
-  connected: boolean
-  is_host: boolean
-}
+import {
+  ErroJogo,
+  corDoJogador,
+  esquecerJogador,
+  formatarTempo,
+  iniciarPartida,
+  obterJogador,
+  ordenarJogadores,
+  sairDaSala,
+  vidasTotais,
+} from '@/lib/game'
+import { useAviso, usePresenca } from '@/lib/hooks'
+import type { Player, Room } from '@/lib/types'
+import {
+  Avatar,
+  Aviso,
+  Carregando,
+  Logo,
+} from '@/components/ui'
+import { BotaoSom } from '@/components/Som'
 
 export default function Sala() {
   const params = useParams()
   const router = useRouter()
 
-  const codigo = String(
-    params.codigo
-  ).toUpperCase()
+  const codigo = String(params.codigo).toUpperCase()
 
-  const [room, setRoom] =
-    useState<Room | null>(null)
+  const [room, setRoom] = useState<Room | null>(null)
+  const [players, setPlayers] = useState<Player[]>([])
+  const [meuPlayerId, setMeuPlayerId] = useState<string | null>(null)
 
-  const [players, setPlayers] =
-    useState<Player[]>([])
+  const [loading, setLoading] = useState(true)
+  const [iniciando, setIniciando] = useState(false)
+  const [erro, setErro] = useState('')
 
-  const [meuPlayerId, setMeuPlayerId] =
-    useState<string | null>(null)
+  const { aviso, avisar } = useAviso()
+  const online = usePresenca(room?.id, meuPlayerId)
 
-  const [loading, setLoading] =
-    useState(true)
+  const roomId = room?.id
 
-  const [erro, setErro] =
-    useState('')
+  const carregarJogadores = useCallback(async (id: string) => {
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('room_id', id)
 
-  const carregarJogadores =
-    useCallback(
-      async (roomId: string) => {
-        const {
-          data,
-          error,
-        } = await supabase
-          .from('players')
-          .select('*')
-          .eq('room_id', roomId)
-          .order('player_order', {
-            ascending: true,
-          })
-          .order('joined_at', {
-            ascending: true,
-          })
+    if (error) {
+      console.error(error)
+      return
+    }
 
-        if (error) {
-          console.error(error)
-          return
-        }
+    setPlayers(data ?? [])
+  }, [])
 
-        setPlayers(data ?? [])
-      },
-      []
-    )
+  const carregarSala = useCallback(async (id: string) => {
+    const { data } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
 
+    if (data) setRoom(data)
+  }, [])
+
+  // Carga inicial
   useEffect(() => {
-    async function carregarSala() {
-      const playerId =
-        obterJogador(codigo)
+    let cancelado = false
 
-      setMeuPlayerId(playerId)
+    async function carregar() {
+      const playerId = obterJogador(codigo)
 
-      const {
-        data,
-        error,
-      } = await supabase
+      if (!playerId) {
+        router.replace(`/entrar?codigo=${codigo}`)
+        return
+      }
+
+      const { data: sala, error } = await supabase
         .from('rooms')
         .select('*')
         .eq('code', codigo)
         .maybeSingle()
 
-      if (error) {
-        console.error(error)
-        setErro(
-          'Erro ao carregar a sala.'
-        )
+      if (cancelado) return
+
+      if (error || !sala) {
+        setErro(error ? 'Erro ao carregar a sala.' : 'Sala não encontrada.')
         setLoading(false)
         return
       }
 
-      if (!data) {
-        setErro('Sala não encontrada.')
-        setLoading(false)
+      const { data: eu } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', playerId)
+        .eq('room_id', sala.id)
+        .maybeSingle()
+
+      if (!eu) {
+        esquecerJogador(codigo)
+        router.replace(`/entrar?codigo=${codigo}`)
         return
       }
 
-      setRoom(data)
+      if (!eu.connected) {
+        await supabase
+          .from('players')
+          .update({ connected: true })
+          .eq('id', playerId)
+      }
 
-      await carregarJogadores(
-        data.id
-      )
+      await carregarJogadores(sala.id)
 
+      if (cancelado) return
+
+      setMeuPlayerId(playerId)
+      setRoom(sala)
       setLoading(false)
     }
 
-    carregarSala()
-  }, [codigo, carregarJogadores])
+    carregar()
 
+    return () => {
+      cancelado = true
+    }
+  }, [codigo, router, carregarJogadores])
+
+  // Tempo real: jogadores entrando/saindo e a sala mudando de status
   useEffect(() => {
-    if (!room) return
+    if (!roomId) return
 
     const channel = supabase
-      .channel(
-        `players-${room.id}`
-      )
+      .channel(`sala-${roomId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'players',
-          filter: `room_id=eq.${room.id}`,
+          filter: `room_id=eq.${roomId}`,
         },
-        () => {
-          carregarJogadores(
-            room.id
-          )
-        }
+        () => carregarJogadores(roomId)
       )
-      .subscribe()
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'rooms',
+          filter: `id=eq.${roomId}`,
+        },
+        () => carregarSala(roomId)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          carregarJogadores(roomId)
+          carregarSala(roomId)
+        }
+      })
 
     return () => {
-      supabase.removeChannel(
-        channel
-      )
+      supabase.removeChannel(channel)
     }
-  }, [
-    room,
-    carregarJogadores,
-  ])
+  }, [roomId, carregarJogadores, carregarSala])
+
+  // Partida começou (ou terminou) → todos vão para a tela do jogo
+  useEffect(() => {
+    if (room?.status === 'playing' || room?.status === 'finished') {
+      router.replace(`/jogo/${codigo}`)
+    }
+  }, [room?.status, codigo, router])
 
   async function copiarCodigo() {
-    await navigator.clipboard.writeText(
-      codigo
-    )
-
-    alert('Código copiado!')
+    try {
+      await navigator.clipboard.writeText(codigo)
+      avisar('Código copiado!')
+    } catch {
+      avisar(`Código: ${codigo}`)
+    }
   }
 
   async function compartilhar() {
-    const url =
-      window.location.href
-
-    const texto =
-      `Entre na minha sala do Entre Brisas!\n\n` +
-      `Código: ${codigo}\n` +
-      `${url}`
+    const url = `${window.location.origin}/entrar?codigo=${codigo}`
+    const texto = `Bora jogar Entre Brisas! Código da sala: ${codigo}`
 
     if (navigator.share) {
-      await navigator.share({
-        title: 'Entre Brisas',
-        text: texto,
-        url,
-      })
-
-      return
+      try {
+        await navigator.share({ title: 'Entre Brisas', text: texto, url })
+        return
+      } catch (error) {
+        // Usuário cancelou o compartilhamento
+        if ((error as Error).name === 'AbortError') return
+      }
     }
 
-    await navigator.clipboard.writeText(
-      texto
-    )
-
-    alert(
-      'Convite copiado!'
-    )
+    try {
+      await navigator.clipboard.writeText(`${texto}\n${url}`)
+      avisar('Convite copiado!')
+    } catch {
+      avisar('Não foi possível copiar o convite.')
+    }
   }
 
   async function sair() {
-    if (
-      meuPlayerId &&
-      room
-    ) {
-      await supabase
-        .from('players')
-        .update({
-          connected: false,
-        })
-        .eq('id', meuPlayerId)
+    if (room && meuPlayerId) {
+      await sairDaSala(room, meuPlayerId, players)
     }
-
-    localStorage.removeItem(
-      `entre-brisas-player-${codigo}`
-    )
 
     router.push('/')
   }
 
-  function formatarTempo(
-    segundos: number | null
-  ) {
-    if (segundos === null) {
-      return 'Ilimitado'
+  async function comecar() {
+    if (!room) return
+
+    setIniciando(true)
+
+    try {
+      await iniciarPartida(room)
+      router.replace(`/jogo/${codigo}`)
+    } catch (error) {
+      console.error(error)
+      avisar(
+        error instanceof ErroJogo
+          ? error.message
+          : 'Não foi possível iniciar a partida.'
+      )
+      setIniciando(false)
     }
-
-    const minutos =
-      segundos / 60
-
-    return `${minutos} min`
   }
 
   if (loading) {
-    return (
-      <main className="main-page">
-        <section className="page-content">
-          <p className="waiting">
-            Carregando sala...
-          </p>
-        </section>
-      </main>
-    )
+    return <Carregando texto="Abrindo a sala…" />
   }
 
   if (erro || !room) {
     return (
-      <main className="main-page">
-        <section className="page-content">
-          <div className="card">
-            <h2>
-              Sala indisponível
-            </h2>
-
-            <p>{erro}</p>
-
-            <button
-              className="btn btn-primary"
-              onClick={() =>
-                router.push('/')
-              }
-            >
-              Voltar
-            </button>
-          </div>
-        </section>
+      <main className="tela-centro">
+        <div className="cartao cartao-mensagem">
+          <h2>Sala indisponível</h2>
+          <p>{erro}</p>
+          <button className="btn btn-primario" onClick={() => router.push('/')}>
+            Voltar ao início
+          </button>
+        </div>
       </main>
     )
   }
 
-  const souHost =
-    room.host_id === meuPlayerId
+  const souHost = room.host_id === meuPlayerId
+  const conectados = ordenarJogadores(players).filter(
+    (player) => player.connected
+  )
+  const podeIniciar = conectados.length >= 2
 
   return (
-    <main className="main-page">
-      <header className="game-header">
-        <h1 className="game-logo">
-          Entre Brisas
-        </h1>
+    <main className="pagina">
+      <header className="topo">
+        <Logo />
+        <BotaoSom />
       </header>
 
-      <section className="page-content">
-        <div className="room-code-box">
-          <div className="room-code-label">
-            Código da sala
-          </div>
-
-          <div className="room-code">
-            {codigo}
-          </div>
-        </div>
-
-        <div className="room-info">
-          <div className="info-box">
-            <div className="info-label">
-              Grade
-            </div>
-
-            <div className="info-value">
-              {room.grid_size} ×{' '}
-              {room.grid_size}
-            </div>
-          </div>
-
-          <div className="info-box">
-            <div className="info-label">
-              Tempo
-            </div>
-
-            <div className="info-value">
-              {formatarTempo(
-                room.turn_time
-              )}
-            </div>
-          </div>
-        </div>
-
-        <h3 className="players-title">
-          Jogadores ({players.length})
-        </h3>
-
-        <div className="players-list">
-          {players.map(
-            (player) => (
-              <div
-                className="player"
-                key={player.id}
+      <section className="conteudo conteudo-largo">
+        <div className="lobby">
+          <div className="lobby-principal">
+            <div className="codigo-sala">
+              <span className="codigo-rotulo">Código da sala</span>
+              <button
+                className="codigo-valor"
+                onClick={copiarCodigo}
+                title="Copiar código"
               >
-                <div className="player-left">
-                  <div className="player-avatar">
-                    {player.name
-                      .charAt(0)
-                      .toUpperCase()}
-                  </div>
+                {codigo.split('').map((letra, i) => (
+                  <span key={i}>{letra}</span>
+                ))}
+              </button>
+              <span className="codigo-dica">Toque para copiar</span>
+            </div>
 
-                  <div>
-                    <strong>
-                      {player.name}
-                    </strong>
-
-                    {player.id ===
-                      meuPlayerId && (
-                      <div className="you-badge">
-                        Você
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {player.is_host && (
-                  <span className="host-badge">
-                    HOST
-                  </span>
-                )}
+            <div className="config-sala">
+              <div className="config-item">
+                <span className="config-rotulo">Tabuleiro</span>
+                <strong>
+                  {room.grid_size} × {room.grid_size}
+                </strong>
               </div>
-            )
-          )}
-        </div>
+              <div className="config-item">
+                <span className="config-rotulo">Tempo</span>
+                <strong>{formatarTempo(room.turn_time)}</strong>
+              </div>
+              <div className="config-item">
+                <span className="config-rotulo">Vidas</span>
+                <strong>{vidasTotais(room.grid_size)}</strong>
+              </div>
+            </div>
 
-        {!souHost && (
-          <div className="waiting">
-            Aguardando o anfitrião
-            iniciar a partida...
+            <div className="cartao">
+              <div className="cartao-cabeca">
+                <h2 className="cartao-titulo">Jogadores</h2>
+                <span className="pilula">{conectados.length}</span>
+              </div>
+
+              <ul className="lista-jogadores lista-lobby">
+                {conectados.map((player) => {
+                  const estaOnline = !online || online.has(player.id)
+
+                  return (
+                    <li
+                      key={player.id}
+                      className={`jogador ${estaOnline ? '' : 'offline'}`}
+                    >
+                      <Avatar
+                        nome={player.name}
+                        cor={corDoJogador(players, player.id)}
+                        online={estaOnline}
+                      />
+                      <span className="jogador-nome">
+                        {player.name}
+                        {player.id === meuPlayerId && <em>você</em>}
+                      </span>
+                      {room.host_id === player.id && (
+                        <span className="tag tag-amarela">♛ anfitrião</span>
+                      )}
+                    </li>
+                  )
+                })}
+
+                {conectados.length < 2 && (
+                  <li className="jogador vaga">
+                    <span className="avatar avatar-md avatar-vazio">?</span>
+                    <span className="jogador-nome">
+                      Esperando mais alguém…
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </div>
           </div>
-        )}
 
-        <div className="buttons">
-          {souHost && (
-            <button
-              className="btn btn-primary"
-              onClick={() =>
-                alert(
-                  'Agora vamos implementar a partida.'
-                )
-              }
-            >
-              Iniciar partida
-            </button>
-          )}
+          <aside className="lobby-lateral">
+            <div className="cartao cartao-regras">
+              <h2 className="cartao-titulo">Como jogar</h2>
+              <ol className="passos">
+                <li>
+                  <span className="passo-num">1</span>
+                  <p>
+                    O tabuleiro tem palavras nas <strong>colunas</strong> e nas{' '}
+                    <strong>linhas</strong>.
+                  </p>
+                </li>
+                <li>
+                  <span className="passo-num">2</span>
+                  <p>
+                    Na sua vez, você recebe uma casa secreta (ex.: B3) e dá{' '}
+                    <strong>uma única palavra</strong> que ligue as duas.
+                  </p>
+                </li>
+                <li>
+                  <span className="passo-num">3</span>
+                  <p>
+                    Os outros votam na casa. Acertou? Ela é preenchida. Errou?
+                    Perdem uma vida.
+                  </p>
+                </li>
+                <li>
+                  <span className="passo-num">4</span>
+                  <p>
+                    <strong>Vitória:</strong> completar o tabuleiro.{' '}
+                    <strong>Derrota:</strong> ficar sem vidas.
+                  </p>
+                </li>
+              </ol>
+            </div>
 
-          <button
-            className="btn btn-secondary"
-            onClick={compartilhar}
-          >
-            Compartilhar sala
-          </button>
+            <div className="botoes">
+              {souHost ? (
+                <button
+                  className="btn btn-primario btn-grande"
+                  onClick={comecar}
+                  disabled={!podeIniciar || iniciando}
+                >
+                  {iniciando
+                    ? 'Embaralhando…'
+                    : podeIniciar
+                      ? 'Iniciar partida'
+                      : 'Mínimo de 2 jogadores'}
+                </button>
+              ) : (
+                <div className="aguardando">
+                  <span className="pontinhos">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  Aguardando o anfitrião iniciar
+                </div>
+              )}
 
-          <button
-            className="btn btn-light"
-            onClick={copiarCodigo}
-          >
-            Copiar código
-          </button>
+              <button className="btn btn-rosa" onClick={compartilhar}>
+                Convidar amigos
+              </button>
 
-          <button
-            className="btn btn-light"
-            onClick={sair}
-          >
-            Sair da sala
-          </button>
+              <button className="btn btn-fantasma" onClick={sair}>
+                Sair da sala
+              </button>
+            </div>
+          </aside>
         </div>
       </section>
+
+      <Aviso mensagem={aviso} />
     </main>
   )
 }
