@@ -53,9 +53,8 @@ export function Tabuleiro({
 
   for (const round of rounds) {
     if (
-      round.status === 'correct' ||
-      round.status === 'wrong' ||
-      round.status === 'timeout'
+      // só o acerto preenche a casa; erro não revela a coordenada
+      round.status === 'correct'
     ) {
       jogadas.set(
         `${round.row_index}-${round.column_index}`,

@@ -8,6 +8,8 @@ export type Room = {
   host_id: string | null
   grid_size: number
   turn_time: number | null
+  /** false = sem vidas: só termina ao completar o tabuleiro ou encerrar */
+  lives_enabled: boolean
   status: RoomStatus
   result: RoomResult | null
   started_at: string | null

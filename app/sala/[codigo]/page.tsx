@@ -298,7 +298,11 @@ export default function Sala() {
               </div>
               <div className="config-item">
                 <span className="config-rotulo">Vidas</span>
-                <strong>{vidasTotais(room.grid_size)}</strong>
+                <strong>
+                  {room.lives_enabled === false
+                    ? '∞'
+                    : vidasTotais(room.grid_size)}
+                </strong>
               </div>
             </div>
 
@@ -374,7 +378,13 @@ export default function Sala() {
                   <span className="passo-num">4</span>
                   <p>
                     <strong>Vitória:</strong> completar o tabuleiro.{' '}
-                    <strong>Derrota:</strong> ficar sem vidas.
+                    {room.lives_enabled === false ? (
+                      'Nesta sala não há vidas: errar não tira ninguém do jogo.'
+                    ) : (
+                      <>
+                        <strong>Derrota:</strong> ficar sem vidas.
+                      </>
+                    )}
                   </p>
                 </li>
               </ol>

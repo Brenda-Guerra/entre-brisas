@@ -466,6 +466,10 @@ a {
   grid-template-columns: repeat(5, 1fr);
 }
 
+.opcoes-vidas {
+  grid-template-columns: 1fr 1fr;
+}
+
 .opcao {
   min-height: 48px;
   padding: 10px 6px;
@@ -1370,6 +1374,61 @@ a {
   font-size: 14px;
   line-height: 1.4;
   color: var(--ink-soft);
+}
+
+.bloco-pistas {
+  flex-shrink: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pistas-usadas {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.pista-usada {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.pista-usada-palavra {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-titulo);
+  font-weight: 700;
+}
+
+.pista-usada-info {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.pista-usada.correct .pista-usada-info {
+  color: var(--green-dark);
+}
+
+.pista-usada.wrong .pista-usada-info,
+.pista-usada.timeout .pista-usada-info {
+  color: var(--red);
+}
+
+.pista-usada.guessing {
+  background: var(--yellow-light);
 }
 
 .bloco-acoes {
@@ -2616,6 +2675,7 @@ a {
   }
 
   .bloco-regras,
+  .bloco-pistas,
   .bloco-acoes {
     display: none;
   }

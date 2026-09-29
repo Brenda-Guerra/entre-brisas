@@ -139,11 +139,12 @@ export const ESTADOS_ATIVOS: RoundStatus[] = [
   'guessing',
 ]
 
-/** Estados que "gastam" a carta (a célula não volta para o baralho). */
-const ESTADOS_JOGADOS: RoundStatus[] = [
+/** Estados finais de uma rodada. */
+const ESTADOS_RESOLVIDOS: RoundStatus[] = [
   'correct',
   'wrong',
   'timeout',
+  'skipped',
 ]
 
 export function rodadaEstaAtiva(round: Round | null | undefined) {
@@ -151,8 +152,7 @@ export function rodadaEstaAtiva(round: Round | null | undefined) {
 }
 
 export function rodadaFoiResolvida(round: Round) {
-  return ESTADOS_JOGADOS.includes(round.status) ||
-    round.status === 'skipped'
+  return ESTADOS_RESOLVIDOS.includes(round.status)
 }
 
 export function ordenarJogadores(players: Player[]) {
@@ -177,11 +177,15 @@ export function vidasTotais(gridSize: number) {
   return gridSize
 }
 
+/**
+ * Situação da partida. Só o acerto preenche uma casa: carta errada
+ * (ou com tempo esgotado) volta para o baralho e pode sair de novo.
+ */
 export function resumoPartida(
-  gridSize: number,
+  room: Pick<Room, 'grid_size' | 'lives_enabled'>,
   rounds: Round[]
 ) {
-  const total = gridSize * gridSize
+  const total = room.grid_size * room.grid_size
   const acertos = rounds.filter(
     (round) => round.status === 'correct'
   ).length
@@ -190,25 +194,29 @@ export function resumoPartida(
       round.status === 'wrong' ||
       round.status === 'timeout'
   ).length
-  const vidas = vidasTotais(gridSize)
+  const comVidas = room.lives_enabled !== false
+  const vidas = comVidas ? vidasTotais(room.grid_size) : 0
 
   return {
     total,
     acertos,
     erros,
+    comVidas,
     vidas,
     vidasRestantes: Math.max(0, vidas - erros),
-    restantes: total - acertos - erros,
+    restantes: total - acertos,
   }
 }
 
-export function classificacao(acertos: number, total: number) {
-  const taxa = total === 0 ? 0 : acertos / total
+/** Nota da partida pela pontaria: acertos ÷ tentativas. */
+export function classificacao(acertos: number, erros: number) {
+  const tentativas = acertos + erros
+  const taxa = tentativas === 0 ? 0 : acertos / tentativas
 
-  if (taxa === 1) {
+  if (tentativas > 0 && erros === 0) {
     return {
       titulo: 'Tempestade perfeita',
-      texto: 'Nenhuma carta perdida. Vocês pensam igual!',
+      texto: 'Nenhum erro. Vocês pensam igual!',
     }
   }
 
@@ -241,7 +249,8 @@ export function classificacao(acertos: number, total: number) {
 
 export function validarPista(
   pista: string,
-  palavrasTabuleiro: string[]
+  palavrasTabuleiro: string[],
+  pistasUsadas: string[] = []
 ) {
   const limpa = pista.trim()
 
@@ -261,6 +270,14 @@ export function validarPista(
 
   if (usaPalavraDoTabuleiro) {
     return 'Não vale usar uma palavra do tabuleiro!'
+  }
+
+  const jaUsada = pistasUsadas.some(
+    (usada) => normalizar(usada) === normalizar(limpa)
+  )
+
+  if (jaUsada) {
+    return 'Essa pista já foi usada nesta partida.'
   }
 
   return null
@@ -308,7 +325,7 @@ function sortearCelulaLivre(gridSize: number, rounds: Round[]) {
     rounds
       .filter(
         (round) =>
-          ESTADOS_JOGADOS.includes(round.status) ||
+          round.status === 'correct' ||
           ESTADOS_ATIVOS.includes(round.status)
       )
       .map((round) => `${round.row_index}-${round.column_index}`)
@@ -474,9 +491,9 @@ export async function avancarJogo({
   if (salaError) throw salaError
   if (sala?.status !== 'playing') return
 
-  const resumo = resumoPartida(room.grid_size, rounds)
+  const resumo = resumoPartida(room, rounds)
 
-  if (resumo.erros >= resumo.vidas) {
+  if (resumo.comVidas && resumo.erros >= resumo.vidas) {
     await finalizarPartida(room.id, 'defeat')
     return
   }

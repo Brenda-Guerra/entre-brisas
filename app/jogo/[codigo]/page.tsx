@@ -326,7 +326,13 @@ export default function Jogo() {
     .sort((a, b) => a.position_index - b.position_index)
     .map((item) => item.word)
 
-  const resumo = resumoPartida(room?.grid_size ?? 0, rounds)
+  const resumo = resumoPartida(
+    { grid_size: room?.grid_size ?? 0, lives_enabled: room?.lives_enabled ?? true },
+    rounds
+  )
+
+  // Pistas já dadas nesta partida (não podem se repetir)
+  const pistasUsadas = rodadasOrdenadas.filter((round) => round.association)
 
   const inicioFase = ativa ? Date.parse(ativa.phase_started_at) : 0
 
@@ -503,7 +509,8 @@ export default function Jogo() {
 
     const problema = validarPista(
       pista,
-      palavras.map((item) => item.word)
+      palavras.map((item) => item.word),
+      pistasUsadas.map((round) => round.association ?? '')
     )
 
     if (problema) {
@@ -709,19 +716,26 @@ export default function Jogo() {
             </strong>
           </div>
 
-          <div className="indicador" title="Vidas restantes">
-            <span className="indicador-rotulo">Vidas</span>
-            <span className="vidas">
-              {Array.from({ length: resumo.vidas }).map((_, i) => (
-                <span
-                  key={i}
-                  className={`vida ${i < resumo.vidasRestantes ? '' : 'perdida'}`}
-                >
-                  ♥
-                </span>
-              ))}
-            </span>
-          </div>
+          {resumo.comVidas ? (
+            <div className="indicador" title="Vidas restantes">
+              <span className="indicador-rotulo">Vidas</span>
+              <span className="vidas">
+                {Array.from({ length: resumo.vidas }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`vida ${i < resumo.vidasRestantes ? '' : 'perdida'}`}
+                  >
+                    ♥
+                  </span>
+                ))}
+              </span>
+            </div>
+          ) : (
+            <div className="indicador" title="Erros (partida sem vidas)">
+              <span className="indicador-rotulo">Erros</span>
+              <strong>{resumo.erros}</strong>
+            </div>
+          )}
 
           <div
             className={`relogio ${alertaTempo ? 'alerta' : ''}`}
@@ -1005,16 +1019,32 @@ export default function Jogo() {
             </ul>
           </div>
 
-          <div className="bloco bloco-regras">
-            <h2 className="bloco-titulo">Como funciona</h2>
-            <ol>
-              <li>Quem está na vez recebe uma casa secreta do tabuleiro.</li>
-              <li>Dá uma pista de <strong>uma palavra</strong> que ligue a coluna e a linha.</li>
-              <li>Os outros votam na casa. Acertou, a casa é preenchida.</li>
-              <li>
-                Completem o tabuleiro antes de perder as {resumo.vidas} vidas!
-              </li>
-            </ol>
+          <div className="bloco bloco-pistas">
+            <h2 className="bloco-titulo">Pistas usadas</h2>
+
+            {pistasUsadas.length === 0 ? (
+              <p className="texto-suave">
+                Nenhuma ainda. Cada pista só pode ser usada uma vez.
+              </p>
+            ) : (
+              <ul className="pistas-usadas">
+                {[...pistasUsadas].reverse().map((round) => (
+                  <li key={round.id} className={`pista-usada ${round.status}`}>
+                    <span className="pista-usada-palavra">
+                      {round.association}
+                    </span>
+                    <span className="pista-usada-info">
+                      {round.status === 'correct' &&
+                        `✓ ${nomeCoordenada(round.row_index, round.column_index)}`}
+                      {(round.status === 'wrong' || round.status === 'timeout') &&
+                        '✕ errou'}
+                      {round.status === 'guessing' && 'em jogo'}
+                      {round.status === 'skipped' && 'pulada'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="bloco bloco-acoes">
@@ -1058,6 +1088,7 @@ export default function Jogo() {
           )}
           colunas={colunas}
           linhas={linhas}
+          comVidas={resumo.comVidas}
         />
       )}
 
@@ -1135,13 +1166,14 @@ function Revelacao({
   autor,
   colunas,
   linhas,
+  comVidas,
 }: {
   round: Round
   autor: Player | undefined
   colunas: string[]
   linhas: string[]
+  comVidas: boolean
 }) {
-  const alvo = nomeCoordenada(round.row_index, round.column_index)
   const palpite =
     round.guess_row !== null && round.guess_column !== null
       ? nomeCoordenada(round.guess_row, round.guess_column)
@@ -1149,44 +1181,55 @@ function Revelacao({
 
   const conteudo = {
     correct: { selo: 'Acertaram!', classe: 'certo' },
-    wrong: { selo: 'Errou…', classe: 'errado' },
+    wrong: { selo: 'Não era essa…', classe: 'errado' },
     timeout: { selo: 'Tempo esgotado', classe: 'errado' },
     skipped: { selo: 'Vez pulada', classe: 'neutro' },
     thinking: { selo: '', classe: 'neutro' },
     guessing: { selo: '', classe: 'neutro' },
   }[round.status]
 
+  const penalidade = comVidas ? ' Uma vida a menos.' : ''
+
   return (
     <div className="revelacao-fundo">
       <div className={`revelacao ${conteudo.classe}`}>
         <span className="revelacao-selo">{conteudo.selo}</span>
 
-        {round.status === 'skipped' ? (
-          <p className="revelacao-texto">
-            A carta de {autor?.name ?? 'alguém'} voltou para o baralho.
-          </p>
-        ) : (
+        {round.status === 'correct' && (
           <>
-            <p className="revelacao-pista">
-              “{round.association ?? 'sem pista'}”
-            </p>
+            <p className="revelacao-pista">“{round.association}”</p>
             <p className="revelacao-texto">
               {autor?.name ?? 'Alguém'} ligou{' '}
               <strong>{colunas[round.column_index]}</strong> +{' '}
               <strong>{linhas[round.row_index]}</strong> — casa{' '}
-              <strong>{alvo}</strong>
+              <strong>
+                {nomeCoordenada(round.row_index, round.column_index)}
+              </strong>
             </p>
-            {round.status === 'wrong' && palpite && (
-              <p className="revelacao-detalhe">
-                O grupo escolheu {palpite}. Uma vida a menos.
-              </p>
-            )}
-            {round.status === 'timeout' && (
-              <p className="revelacao-detalhe">
-                O tempo acabou. Uma vida a menos.
-              </p>
-            )}
           </>
+        )}
+
+        {/* No erro a coordenada certa NÃO é revelada: a carta volta ao baralho */}
+        {(round.status === 'wrong' || round.status === 'timeout') && (
+          <>
+            {round.association && (
+              <p className="revelacao-pista">“{round.association}”</p>
+            )}
+            <p className="revelacao-texto">
+              {round.status === 'wrong' && palpite
+                ? `O grupo escolheu ${palpite}, mas a pista de ${autor?.name ?? 'alguém'} era para outra casa.`
+                : `${autor?.name ?? 'Alguém'} ficou sem tempo.`}
+            </p>
+            <p className="revelacao-detalhe">
+              A carta volta para o baralho.{penalidade}
+            </p>
+          </>
+        )}
+
+        {round.status === 'skipped' && (
+          <p className="revelacao-texto">
+            A carta de {autor?.name ?? 'alguém'} voltou para o baralho.
+          </p>
         )}
       </div>
     </div>

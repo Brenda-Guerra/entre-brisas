@@ -31,7 +31,7 @@ const TEXTOS = {
   victory: {
     selo: 'Vitória!',
     titulo: 'O tabuleiro foi completado',
-    subtitulo: 'Todas as cartas foram jogadas antes das vidas acabarem.',
+    subtitulo: 'Todas as casas do tabuleiro foram preenchidas.',
   },
   defeat: {
     selo: 'Derrota',
@@ -70,8 +70,8 @@ export function TelaFinal({
 }: Props) {
   const resultado = room.result ?? 'ended'
   const texto = TEXTOS[resultado]
-  const resumo = resumoPartida(room.grid_size, rounds)
-  const nota = classificacao(resumo.acertos, resumo.total)
+  const resumo = resumoPartida(room, rounds)
+  const nota = classificacao(resumo.acertos, resumo.erros)
   const historico = ordenarRodadas(rounds).filter(
     (round) =>
       round.status !== 'thinking' &&

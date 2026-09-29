@@ -29,6 +29,7 @@ export default function CriarSala() {
   const [nome, setNome] = useState('')
   const [gridSize, setGridSize] = useState(4)
   const [turnTime, setTurnTime] = useState('120')
+  const [comVidas, setComVidas] = useState(true)
 
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
@@ -70,6 +71,7 @@ export default function CriarSala() {
           code: codigo,
           grid_size: gridSize,
           turn_time: turnTime === 'unlimited' ? null : Number(turnTime),
+          lives_enabled: comVidas,
           status: 'waiting',
         })
         .select()
@@ -170,7 +172,7 @@ export default function CriarSala() {
                 ))}
               </div>
               <p className="dica">
-                {gridSize * gridSize} cartas · {vidasTotais(gridSize)} vidas
+                {gridSize * gridSize} casas para preencher
               </p>
             </div>
 
@@ -192,6 +194,35 @@ export default function CriarSala() {
               </div>
               <p className="dica">
                 Vale para a pista e para os palpites. Acabou? Perde uma vida.
+              </p>
+            </div>
+
+            <div className="campo">
+              <span className="rotulo">Vidas</span>
+              <div className="opcoes opcoes-vidas" role="radiogroup">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={comVidas}
+                  className={`opcao ${comVidas ? 'ativa' : ''}`}
+                  onClick={() => setComVidas(true)}
+                >
+                  ♥ {vidasTotais(gridSize)} vidas
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!comVidas}
+                  className={`opcao ${!comVidas ? 'ativa' : ''}`}
+                  onClick={() => setComVidas(false)}
+                >
+                  Sem vidas
+                </button>
+              </div>
+              <p className="dica">
+                {comVidas
+                  ? 'Cada erro gasta uma vida. Acabaram as vidas, fim de jogo.'
+                  : 'Pode errar à vontade: o jogo acaba ao completar o tabuleiro.'}
               </p>
             </div>
 
